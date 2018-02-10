@@ -1,6 +1,6 @@
-FROM golang:latest as builder
+FROM golang:1.9.4-alpine3.7 as builder
 
-WORKDIR $GOPATH/src/github.com/zachlatta/sshtron
+WORKDIR $GOPATH/src/github.com/bcspragu/sshtron
 ADD . .
 RUN go get && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /usr/bin/sshtron .
 
