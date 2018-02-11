@@ -1,18 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"errors"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
-	"os"
 
 	"golang.org/x/crypto/ssh"
-)
-
-const (
-	sshPortEnv = "SSH_PORT"
-
-	defaultSSHPort = "2022"
 )
 
 func handler(conn net.Conn, gm *GameManager, config *ssh.ServerConfig) {
@@ -68,21 +64,26 @@ func handler(conn net.Conn, gm *GameManager, config *ssh.ServerConfig) {
 	}
 }
 
-func port(env, def string) string {
-	port := os.Getenv(env)
-	if port == "" {
-		port = def
-	}
-
-	return fmt.Sprintf(":%s", port)
-}
-
 func main() {
-	sshPort := port(sshPortEnv, defaultSSHPort)
+	sshPort := flag.String("ssh_port", ":2022", "The ssh port to run the server on")
+	passwdFile := flag.String("password_file", "", "If provided, require a password to play on our server")
+	flag.Parse()
+
+	var (
+		pwCallback   func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error)
+		noClientAuth bool
+	)
+
+	if *passwdFile == "" {
+		noClientAuth = true
+	} else {
+		pwCallback = callbackFromFile(*passwdFile)
+	}
 
 	// Everyone can login!
 	config := &ssh.ServerConfig{
-		NoClientAuth: true,
+		PasswordCallback: pwCallback,
+		NoClientAuth:     noClientAuth,
 	}
 
 	privateBytes, err := ioutil.ReadFile("id_rsa")
@@ -100,11 +101,11 @@ func main() {
 	// Create the GameManager
 	gm := NewGameManager()
 
-	fmt.Printf("Listening on SSH port %s...\n", sshPort)
+	fmt.Printf("Listening on SSH port %s...\n", *sshPort)
 
 	// Once a ServerConfig has been configured, connections can be
 	// accepted.
-	listener, err := net.Listen("tcp", sshPort)
+	listener, err := net.Listen("tcp", *sshPort)
 	if err != nil {
 		panic("failed to listen for connection")
 	}
@@ -116,5 +117,21 @@ func main() {
 		}
 
 		go handler(nConn, gm, config)
+	}
+}
+
+func callbackFromFile(file string) func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
+	dat, err := ioutil.ReadFile(file)
+	if err != nil {
+		return func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
+			return nil, errors.New("failed to read password file")
+		}
+	}
+
+	return func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
+		if !bytes.Equal(dat, password) {
+			return nil, errors.New("invalid password")
+		}
+		return nil, nil
 	}
 }

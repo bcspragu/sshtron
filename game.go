@@ -3,14 +3,16 @@ package main
 import (
 	"bufio"
 	"bytes"
+	cryptorand "crypto/rand"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/dustinkirkland/golang-petname"
 	"github.com/fatih/color"
 	"golang.org/x/crypto/ssh"
 )
@@ -39,8 +41,8 @@ func (h *Hub) Run(g *Game) {
 				go g.Render(s)
 			}
 		case s := <-h.Register:
-			// Hide the cursor
-			fmt.Fprint(s, "\033[?25l")
+			// Hide the cursor and clear the screen
+			fmt.Fprint(s, "\033[?25l\033[2J")
 
 			h.Sessions[s] = struct{}{}
 		case s := <-h.Unregister:
@@ -141,7 +143,7 @@ type PlayerTrailSegment struct {
 type Player struct {
 	s *Session
 
-	Name	  string
+	Name      string
 	CreatedAt time.Time
 	Direction PlayerDirection
 	Marker    rune
@@ -154,8 +156,7 @@ type Player struct {
 }
 
 // NewPlayer creates a new player. If color is below 1, a random color is chosen
-func NewPlayer(s *Session, worldWidth, worldHeight int,
-	color color.Attribute) *Player {
+func NewPlayer(s *Session, worldWidth, worldHeight int, color color.Attribute) *Player {
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -449,7 +450,7 @@ type Game struct {
 
 func NewGame(worldWidth, worldHeight int) *Game {
 	g := &Game{
-		Name:   petname.Generate(1, ""),
+		Name:   newID(),
 		Redraw: make(chan struct{}),
 		hub:    NewHub(),
 	}
@@ -593,14 +594,6 @@ func (g *Game) worldString(s *Session) string {
 		for i, r := range warning {
 			strWorld[3+i][len(strWorld[0])-1] = borderColorizer(string(r))
 		}
-	}
-
-	// Draw the game's name
-	nameStr := fmt.Sprintf(" %s ", g.Name)
-	for i, r := range nameStr {
-		charsRemaining := len(nameStr) - i
-		strWorld[len(strWorld)-3-charsRemaining][len(strWorld[0])-1] =
-			borderColorizer(string(r))
 	}
 
 	// Load the level into the string slice
@@ -766,7 +759,7 @@ func (g *Game) Render(s *Session) {
 	worldStr := g.worldString(s)
 
 	var b bytes.Buffer
-	b.WriteString("\033[H\033[2J")
+	b.WriteString("\033[H")
 	b.WriteString(worldStr)
 
 	// Send over the rendered world
@@ -816,4 +809,15 @@ func (s *Session) Read(p []byte) (int, error) {
 
 func (s *Session) Write(p []byte) (int, error) {
 	return s.c.Write(p)
+}
+
+func newID() string {
+	b := make([]byte, 16)
+	_, err := cryptorand.Read(b)
+	if err != nil {
+		log.Println("Error: ", err)
+		return strconv.FormatInt(rand.Int63(), 10)
+	}
+
+	return fmt.Sprintf("%X-%X-%X-%X-%X", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }
